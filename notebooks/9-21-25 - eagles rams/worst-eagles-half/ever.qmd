@@ -1,0 +1,113 @@
+---
+format: 
+  html:
+    toc: true
+    toc-depth: 2
+    toc-title: "Contents"
+    number-sections: true
+    theme: united
+    code-fold: show
+    code-summary: "Show/Hide Code"
+    fig-width: 7
+    fig-height: 5
+    fig-align: center 
+    embed-resources: true
+execute:
+  warning: false
+  error: false
+  message: false
+  echo: true
+---
+
+# Philadelphia Eagles First Half Offensive Analysis - All Time
+
+## Setup
+
+```{r setup}
+library(nflreadr)
+library(dplyr)
+library(ggrepel)
+library(ggplot2)
+```
+
+## Load Data -----
+
+```{r load-data}
+## Load Data -----
+
+cache_data = 'pbp_all.parquet'
+if (!file.exists(cache_data)) {
+  pbp_all <- nflreadr::load_pbp(1999:2025)
+  arrow::write_parquet(pbp_all, cache_data)
+} else {
+  pbp_all <- arrow::read_parquet(cache_data)
+}
+```
+
+## Calculations
+
+```{r calculations}
+eagles_first_half_all <- pbp_all %>%
+  filter(posteam == "PHI", qtr <= 2, !is.na(yards_gained), 
+         special == 0, play_type %in% c("run", "pass"), penalty == 0) %>%
+  group_by(season, game_id, week) %>%
+  summarise(
+    total_yards = sum(yards_gained, na.rm = TRUE),
+    .groups = 'drop'
+  )
+
+# Add the 9/12/2025 Eagles vs Rams game data
+highlight_game <- data.frame(
+  season = 2025,
+  game_id = "2025_02_PHI_LAR",
+  week = 2,
+  total_yards = 33
+)
+
+# Calculate overall average
+overall_average <- mean(eagles_first_half_all$total_yards, na.rm = TRUE)
+```
+
+## Plot: Eagles First Half Yards by Year
+
+```{r plot}
+ggplot(eagles_first_half_all, aes(x = factor(season), y = total_yards)) +
+  geom_boxplot(fill = "#A5ACAF", alpha = 0.8, outlier.shape = NA, width = 0.7) +
+  geom_jitter(color = "#004C54", alpha = 0.6, width = 0.25, size = 1.8) +
+  geom_point(data = data.frame(season = 2015, total_yards = 21), 
+             aes(x = factor(season), y = total_yards),
+             color = "#8B0000", size = 5, stroke = 2, shape = 21, fill = "white") +
+  geom_point(data = highlight_game, aes(x = factor(season), y = total_yards),
+             color = "#FF0000", size = 7, stroke = 2.5, shape = 21, fill = "white") +
+  geom_text_repel(data = data.frame(season = 2015, total_yards = 21), 
+                  aes(x = factor(season), y = total_yards,
+                      label = "vs DAL 2015\n21 yards\n(WORST)"),
+                  color = "#8B0000", size = 3.8, fontface = "bold",
+                  nudge_x = -2.5, box.padding = 0.6, point.padding = 0.4,
+                  bg.color = "white", bg.r = 0.15, segment.color = "#8B0000") +
+  geom_text_repel(data = highlight_game, 
+                  aes(x = factor(season), y = total_yards,
+                      label = "SEPT 21, 2025\nvs RAMS\n33 yards\n(2ND WORST)"),
+                  color = "#FF0000", size = 4.2, fontface = "bold",
+                  nudge_x = -3.5, box.padding = 0.6, point.padding = 0.4,
+                  bg.color = "white", bg.r = 0.15, segment.color = "#FF0000") +
+  labs(title = "EAGLES' HISTORICALLY POOR FIRST HALF: 33 YARDS VS RAMS",
+       subtitle = "September 21st performance marks 2nd worst first half offense in franchise history since 1999",
+       x = "Season", y = "First Half Offensive Yards") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 16, color = "#003366", margin = margin(b = 8)),
+    plot.subtitle = element_text(size = 12, color = "#CC0000", margin = margin(b = 25)),
+    plot.caption = element_text(size = 10, color = "#666666", hjust = 1),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+    axis.text.y = element_text(size = 11),
+    axis.title = element_text(face = "bold", size = 12),
+    panel.grid.major = element_line(color = "#E5E5E5", size = 0.5),
+    panel.grid.minor = element_blank(),
+    plot.background = element_rect(fill = "#FCFCFC", color = NA),
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.margin = margin(20, 20, 15, 20)
+  )
+
+```
+
