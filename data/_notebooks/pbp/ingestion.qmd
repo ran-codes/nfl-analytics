@@ -1,0 +1,123 @@
+---
+title: "Data Ingestion"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-location: left
+    number-sections: true
+    theme: cosmo
+    code-fold: true
+    code-summary: "Show/Hide Code"
+    fig-width: 8
+    fig-height: 5
+    fig-align: center
+    css: styles.css
+--- 
+
+
+```{r}
+library(tidyverse)
+library(nflreadr)
+library(here)
+setwd(here("data","notebooks","pbp"))
+```
+
+# nflreadr calls ----
+
+## Historical seed (1999-2024) ----
+
+We started this datawarehouse in 2025 season, so we want to seed all historical data before the season starts. (These don't change, so we only need to do this once).
+
+```{{r read-pbp-seed}}
+df_pbp_99_24 <- nflreadr::load_pbp(1999:2024)|> 
+  as_tibble()
+arrow::write_parquet(df_pbp_99_24, '_raw/pbp_1999_2024.parquet')
+```
+
+
+
+## Most recent season (2025) -----
+
+This portion will pull in  the most recent season data.
+```{r}
+df_pbp_2025 <- nflreadr::load_pbp(2025) |> 
+        as_tibble()
+df_pbp_2025 |> arrow::write_parquet('_raw/pbp_2025.parquet')
+freeze_metadata = list(
+  date_pbp_update = Sys.Date(),
+  pbp_rows = nrow(df_pbp_2025),
+  max_date = max(as.Date(unique(df_pbp_2025$game_date)))
+)
+freeze_metadata |> 
+  jsonlite::toJSON( pretty=TRUE ) |> 
+  writeLines('_raw/pbp_2025_metadata.json')
+```
+
+
+
+# Compile PBP Parquet API -----
+
+
+```{r}
+## Import 
+ds_pbp_99_24 = '_raw/pbp_1999_2024.parquet' |> 
+  arrow::open_dataset() |> 
+  collect()
+ds_pbp_2025 = '_raw/pbp_2025.parquet' |> 
+  arrow::open_dataset() |> 
+  collect() |> 
+  mutate(api_update_ran = Sys.Date())
+
+## Clean
+df_api = bind_rows(ds_pbp_99_24, ds_pbp_2025) |> 
+  mutate(game_date = as.Date(game_date)) 
+
+
+df_api |> 
+  arrow::write_parquet(here("data","pbp.parquet"),
+                       partitioning = c("season", "week"), 
+                       compression = 'snappy',
+                       use_dictionary = TRUE)
+```
+
+
+# Compile PBP LakeHouse -----
+
+## Lakehouse?
+DuckLake is the best choice for your NFL PBP datawarehouse:
+rlibrary(DBI)
+library(duckdb)
+
+con <- dbConnect(duckdb())
+dbExecute(con, "INSTALL ducklake; LOAD ducklake;")
+
+# Attach DuckLake catalog
+dbExecute(con, "
+  ATTACH 'ducklake:pbp_metadata.ducklake' AS nfl_pbp 
+  (DATA_PATH 'data/parquet/')
+")
+
+# Initial seed (1999-2024)
+df_pbp_99_24 <- nflreadr::load_pbp(1999:2024)
+dbWriteTable(con, Id(schema = "nfl_pbp", table = "pbp"), df_pbp_99_24)
+
+# Daily updates - just INSERT new 2025 data
+df_pbp_2025 <- nflreadr::load_pbp(2025)
+dbExecute(con, "DELETE FROM nfl_pbp.pbp WHERE season = 2025")
+dbAppendTable(con, Id(schema = "nfl_pbp", table = "pbp"), df_pbp_2025)
+Why DuckLake over alternatives:
+
+Time travel: Query any historical version
+ACID transactions: Safe concurrent updates
+Change data feed: Track what changed
+No partition management: Automatic optimization
+Schema evolution: Add columns without rewriting
+
+vs alternatives:
+
+Single Parquet: Must rewrite entire file on update
+HDFS: Manual partition management, complex updates
+Delta/Iceberg: More complex, overkill for local use
+
+DuckLake gives you lakehouse features with DuckDB simplicity.
