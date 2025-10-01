@@ -1,4 +1,6 @@
 ---
+title: " Philadelphia Eagles First Half Offensive Analysis - All Time"
+date: "2024-09-22"
 format: 
   html:
     toc: true
@@ -19,42 +21,46 @@ execute:
   echo: true
 ---
 
-# Philadelphia Eagles First Half Offensive Analysis - All Time
 
-## Setup
+
+# Setup
 
 ```{r setup}
-library(nflreadr)
+library(tidyverse)
+library(here)
 library(dplyr)
 library(ggrepel)
 library(ggplot2)
 ```
 
-## Load Data -----
+Now let's connect to the compiled PBP data API.
 
-```{r load-data}
-## Load Data -----
-
-cache_data = 'pbp_all.parquet'
-if (!file.exists(cache_data)) {
-  pbp_all <- nflreadr::load_pbp(1999:2025)
-  arrow::write_parquet(pbp_all, cache_data)
-} else {
-  pbp_all <- arrow::read_parquet(cache_data)
-}
+```{r}
+pbp = here("data","pbp") |> 
+  arrow::open_dataset()
 ```
 
-## Calculations
+# Data
+
+## Query
 
 ```{r calculations}
-eagles_first_half_all <- pbp_all %>%
+eagles_first_half_all <- pbp %>%
   filter(posteam == "PHI", qtr <= 2, !is.na(yards_gained), 
          special == 0, play_type %in% c("run", "pass"), penalty == 0) %>%
+  filter(game_date <= as.Date("2025-09-22")) %>%
   group_by(season, game_id, week) %>%
   summarise(
     total_yards = sum(yards_gained, na.rm = TRUE),
     .groups = 'drop'
-  )
+  ) |> 
+    collect()
+
+```
+
+## Calculations
+
+```{r}
 
 # Add the 9/12/2025 Eagles vs Rams game data
 highlight_game <- data.frame(
@@ -67,6 +73,9 @@ highlight_game <- data.frame(
 # Calculate overall average
 overall_average <- mean(eagles_first_half_all$total_yards, na.rm = TRUE)
 ```
+
+
+# Visualizations
 
 ## Plot: Eagles First Half Yards by Year
 
